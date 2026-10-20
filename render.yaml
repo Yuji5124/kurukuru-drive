@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: kurukuru-drive
+    runtime: node
+    plan: free
+    buildCommand: ./scripts/render-build.sh
+    startCommand: npm start
+    healthCheckPath: /
