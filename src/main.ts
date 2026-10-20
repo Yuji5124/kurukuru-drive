@@ -5,7 +5,7 @@ import './diagnostics.css';
 import type { DriveInput, SessionNotice } from './network/protocol';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML = `<main class="layout"><header><strong>くるくるドライブ！</strong><span id="link-state">コントローラーを待っています</span></header><section class="stage"><canvas id="game"></canvas><div class="hud"><div class="medals">⭐ <span id="medal-count">0</span> / 10</div><div class="progress"><i id="progress"></i></div></div><div class="finish hidden" id="finish"><b>ゴール！</b><span>メダルを <em id="final-count">0</em> まい あつめたよ</span><button id="again">もういっかい！</button></div><aside class="host-debug hidden" id="host-debug"><b>入力診断</b><span>操舵 <i id="host-steering">0.00</i></span><span>受信後 <i id="host-age">—</i></span><span>ブレーキ <i id="host-brake">OFF</i> ・ クラクション <i id="host-horn">OFF</i></span></aside></section><aside class="connect"><div><h1>スマホをハンドルにしよう</h1><p>QRコードを iPhone で読み取って接続</p><canvas id="qr" width="196" height="196"></canvas><small id="qr-help">起動時に接続用QRコードを準備します</small><button id="sound-toggle" class="sound-toggle">サウンドを有効にする</button></div></aside></main>`;
+app.innerHTML = `<main class="layout"><section class="stage"><canvas id="game"></canvas><header class="topbar"><strong class="brand"><span class="brand-mark">K</span> くるくるグランプリ</strong><span class="connection"><i class="connection-dot"></i><span id="link-state">コントローラーを待っています</span></span></header><div class="hud"><div class="score"><span class="coin-icon">★</span><span><b id="medal-count">0</b><small> / 10 コイン</small></span></div><div class="route-wrap"><div class="distance-badge"><small>MARATHON CHALLENGE</small><b><i id="distance-km">0.00</i><span> / 42.195 KM</span></b></div><div class="route"><div class="route-car">🚗</div><div class="progress"><i id="progress"></i></div><div class="route-finish">🏁</div><div class="route-stars"><span>★</span><span>★</span><span>★</span></div><div class="route-labels"><span>10K</span><span>HALF</span><span>30K</span></div></div></div></div><aside class="connect"><div class="connect-heading"><span class="phone-icon">↗</span><div><h1>スマホをハンドルに</h1><p>カメラでQRを読み取ってね</p></div></div><canvas id="qr" width="176" height="176"></canvas><small id="qr-help">接続用QRコードを準備しています</small><button id="sound-toggle" class="sound-toggle">♪ サウンドを有効にする</button></aside><div class="finish hidden" id="finish"><div class="finish-stars">✦　★　✦</div><b>ゴール！</b><span>42.195 KM 完走！　コイン <em id="final-count">0</em> まい</span><button id="again">もういっかい！</button></div><aside class="host-debug hidden" id="host-debug"><b>入力診断</b><span>操舵 <i id="host-steering">0.00</i></span><span>受信後 <i id="host-age">—</i></span><span>ブレーキ <i id="host-brake">OFF</i> ・ クラクション <i id="host-horn">OFF</i></span></aside></section></main>`;
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -17,15 +17,37 @@ const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 250);
 camera.position.set(0, 8, 13);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x608542, 2.1));
 const sun = new THREE.DirectionalLight(0xffffff, 2.5); sun.position.set(-5, 15, 8); scene.add(sun);
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 220), new THREE.MeshStandardMaterial({ color: 0x72c95e }));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 220), new THREE.MeshStandardMaterial({ color: 0x78d45d, roughness: 1 }));
 ground.rotation.x = -Math.PI / 2; ground.position.z = -70; scene.add(ground);
+
+// Soft hills frame the route and keep the horizon lively without crowding the road.
+for (let i = 0; i < 14; i++) {
+  const side = i % 2 ? 1 : -1;
+  const hill = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), new THREE.MeshStandardMaterial({ color: [0x8cdb68, 0x6fca5e, 0xb5e77b][i % 3], roughness: 1 }));
+  hill.scale.set(8 + (i % 3) * 3, 2.2 + (i % 2), 8);
+  hill.position.set(side * (17 + (i % 2) * 7), 0.4, -i * 12 - 5); scene.add(hill);
+}
+// Puffy clouds and colorful roadside flags add scale and a race-day feel.
+for (let i = 0; i < 12; i++) {
+  const cloud = new THREE.Group();
+  const x = i % 2 ? 1 : -1;
+  for (const [dx, dy, scale] of [[0, 0, 1.35], [1, 0.15, 1], [-1, 0.1, 0.92], [0.3, 0.45, 0.85]] as const) {
+    const puff = new THREE.Mesh(new THREE.SphereGeometry(scale, 12, 9), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 }));
+    puff.position.set(dx, dy, 0); cloud.add(puff);
+  }
+  cloud.position.set(x * (18 + (i % 3) * 8), 10 + (i % 2) * 3, -i * 16 - 8); scene.add(cloud);
+}
 
 const road = new THREE.Group(); scene.add(road);
 for (let i = 0; i < 11; i++) {
   const z = 10 - i * 13;
   const bend = Math.sin(i * 0.62) * 5;
-  const segment = new THREE.Mesh(new THREE.BoxGeometry(8, 0.12, 14), new THREE.MeshStandardMaterial({ color: 0x777e86, roughness: 0.95 }));
+  const segment = new THREE.Mesh(new THREE.BoxGeometry(8, 0.12, 14.2), new THREE.MeshStandardMaterial({ color: 0x737d88, roughness: 0.92 }));
   segment.position.set(bend, 0.02, z); segment.rotation.y = -Math.cos(i * 0.62) * 0.19; road.add(segment);
+  for (const side of [-1, 1]) {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, 14.2), new THREE.MeshStandardMaterial({ color: 0xf6f5eb, roughness: 0.85 }));
+    edge.position.set(bend + side * 3.94, 0.12, z); edge.rotation.y = segment.rotation.y; road.add(edge);
+  }
   const line = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 5), new THREE.MeshStandardMaterial({ color: 0xffffff }));
   line.position.set(bend, 0.1, z); line.rotation.y = segment.rotation.y; road.add(line);
   for (const side of [-1, 1]) {
@@ -34,15 +56,33 @@ for (let i = 0; i < 11; i++) {
     if (i % 2 === 0) {
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.35, 1.6, 7), new THREE.MeshStandardMaterial({ color: 0x865338 }));
       trunk.position.set(bend + side * (9 + Math.random() * 4), 0.8, z); scene.add(trunk);
-      const crown = new THREE.Mesh(new THREE.SphereGeometry(1.25, 9, 7), new THREE.MeshStandardMaterial({ color: 0x42a84c }));
-      crown.position.set(trunk.position.x, 2.15, z); scene.add(crown);
+      const crownMaterial = new THREE.MeshStandardMaterial({ color: i % 4 === 0 ? 0x2ab85c : 0x38b84d, roughness: 1 });
+      for (const [dx, dy, scale] of [[0, 2.1, 1.15], [-0.62, 1.85, 0.72], [0.58, 1.92, 0.76]] as const) {
+        const crown = new THREE.Mesh(new THREE.SphereGeometry(scale, 10, 8), crownMaterial);
+        crown.position.set(trunk.position.x + dx, dy, z); scene.add(crown);
+      }
+      if (i % 4 === 0) {
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 2.9, 6), new THREE.MeshStandardMaterial({ color: 0xf7f5e9 }));
+        pole.position.set(bend + side * 6.3, 1.45, z - 2.5); scene.add(pole);
+        const banner = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.56, 0.06), new THREE.MeshStandardMaterial({ color: [0xff5965, 0xffca3b, 0x42bde9][i % 3], roughness: 0.65 }));
+        banner.position.set(pole.position.x + side * 0.43, 2.45, pole.position.z); banner.rotation.z = side * -0.08; scene.add(banner);
+      }
     }
   }
 }
 
 const car = new THREE.Group(); scene.add(car); car.position.set(0, 0, 5);
-const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.65, 2.8), new THREE.MeshStandardMaterial({ color: 0xf34743, roughness: 0.45 })); body.position.y = 0.72; car.add(body);
-const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.7, 1.3), new THREE.MeshStandardMaterial({ color: 0xb9edff, roughness: 0.25, metalness: 0.05 })); cabin.position.set(0, 1.32, -0.15); car.add(cabin);
+const paint = new THREE.MeshStandardMaterial({ color: 0xf43f50, roughness: 0.3, metalness: 0.12 });
+const body = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.62, 2.85), paint); body.position.y = 0.72; car.add(body);
+const hood = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.2, 0.95), paint); hood.position.set(0, 1.08, -0.83); car.add(hood);
+const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.28, 0.72, 1.34), new THREE.MeshStandardMaterial({ color: 0x4a7590, roughness: 0.2, metalness: 0.08 })); cabin.position.set(0, 1.3, -0.12); car.add(cabin);
+const roof = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 1.05), paint); roof.position.set(0, 1.72, -0.13); car.add(roof);
+const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.2, 0.18), new THREE.MeshStandardMaterial({ color: 0xfff3e7, roughness: 0.35 })); bumper.position.set(0, 0.48, -1.43); car.add(bumper);
+for (const x of [-0.67, 0.67]) {
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), new THREE.MeshStandardMaterial({ color: 0xffee81, emissive: 0xffbd36, emissiveIntensity: 0.65, roughness: 0.2 }));
+  lamp.scale.set(1, 0.75, 0.35); lamp.position.set(x, 0.86, -1.43); car.add(lamp);
+}
+for (const x of [-1, 1]) { const mirror = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), paint); mirror.scale.set(1, 0.8, 0.75); mirror.position.set(x, 1.05, -0.3); car.add(mirror); }
 const wheels: THREE.Mesh[] = [];
 for (const x of [-0.95, 0.95]) for (const z of [-0.85, 0.9]) {
   const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.2, 14), new THREE.MeshStandardMaterial({ color: 0x33363d }));
@@ -59,12 +99,17 @@ const medals = Array.from({ length: 10 }, (_, i) => {
 const takenMedals = new Set<number>();
 
 const gate = new THREE.Group(); scene.add(gate); gate.position.set(0, 0, -114);
-for (let i = 0; i < 13; i++) {
-  const angle = Math.PI * (i / 12);
-  const piece = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.55), new THREE.MeshStandardMaterial({ color: [0xf14e54, 0xffa343, 0xffdf51, 0x50c878, 0x51a8f4, 0x9664dc][Math.floor(i / 2.2)] }));
-  piece.position.set(Math.cos(angle) * 4, 3.2 + Math.sin(angle) * 3.2, 0); gate.add(piece);
+const rainbowColors = [0xf04c61, 0xffa23e, 0xffd74a, 0x61ce78, 0x52b7ef, 0x9b75e8];
+for (let band = 0; band < rainbowColors.length; band++) {
+  const radius = 4.4 - band * 0.37;
+  const points = Array.from({ length: 25 }, (_, i) => { const a = Math.PI * i / 24; return new THREE.Vector3(Math.cos(a) * radius, 0.25 + Math.sin(a) * radius, 0); });
+  const arc = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 48, 0.2, 8, false), new THREE.MeshStandardMaterial({ color: rainbowColors[band], roughness: 0.32 })); gate.add(arc);
 }
-const sign = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.8, 0.4), new THREE.MeshStandardMaterial({ color: 0xffe55b })); sign.position.set(0, 2.9, 0); gate.add(sign);
+const sign = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.78, 0.45), new THREE.MeshStandardMaterial({ color: 0xfff0ad, roughness: 0.4 })); sign.position.set(0, 3.15, -0.12); gate.add(sign);
+const goal = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.36, 0.5), new THREE.MeshStandardMaterial({ color: 0xf04d62, roughness: 0.4 })); goal.position.set(0, 3.18, -0.4); gate.add(goal);
+for (const x of [-4.6, 4.6]) {
+  const flag = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.52, 0.08), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 })); flag.position.set(x, 4.65, 0); flag.rotation.z = x < 0 ? 0.18 : -0.18; gate.add(flag);
+}
 
 const state = { steering: 0, brake: false, connected: false, started: false, complete: false, medals: 0, distance: 0, x: 0, seq: -1 };
 const statusNode = document.querySelector('#link-state')!;
@@ -184,6 +229,7 @@ function tick() {
     }
     const progress = Math.min(state.distance / 120, 1);
     document.querySelector<HTMLElement>('#progress')!.style.width = `${progress * 100}%`;
+    document.querySelector<HTMLElement>('#distance-km')!.textContent = (progress * 42.195).toFixed(2);
     if (progress >= 1) {
       state.complete = true; state.started = false;
       document.querySelector('#final-count')!.textContent = String(state.medals);
