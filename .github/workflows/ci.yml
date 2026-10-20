@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [codex/phase-3.5-render-deploy]
+    branches: [codex/phase-3.5-render-deploy, codex/marathon-race-screen]
 
 permissions:
   contents: read
