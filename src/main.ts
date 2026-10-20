@@ -13,10 +13,41 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setClearColor('#8ad8ff');
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog('#bcecff', 45, 150);
-const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 250);
-camera.position.set(0, 8, 13);
+const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 250);
+camera.position.set(0, 7, 11);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x608542, 2.1));
 const sun = new THREE.DirectionalLight(0xffffff, 2.5); sun.position.set(-5, 15, 8); scene.add(sun);
+const roadCenterX = (z: number) => Math.sin((10 - z) * 0.047) * 5;
+function roadFrame(distance: number) {
+  const z = 10 - distance;
+  const x = roadCenterX(z);
+  const slope = 5 * 0.047 * Math.cos(distance * 0.047);
+  const forward = new THREE.Vector3(slope, 0, -1).normalize();
+  const right = new THREE.Vector3(-forward.z, 0, forward.x);
+  return { center: new THREE.Vector3(x, 0, z), right };
+}
+function makeRoadRibbon(start: number, end: number, width: number, offset: number, y: number, samples: number) {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let row = 0; row <= samples; row++) {
+    const distance = start + (end - start) * row / samples;
+    const { center, right } = roadFrame(distance);
+    const leftPoint = center.clone().addScaledVector(right, offset - width / 2); leftPoint.y = y;
+    const rightPoint = center.clone().addScaledVector(right, offset + width / 2); rightPoint.y = y;
+    positions.push(leftPoint.x, leftPoint.y, leftPoint.z, rightPoint.x, rightPoint.y, rightPoint.z);
+    uvs.push(0, row / samples, 1, row / samples);
+    if (row < samples) {
+      const a = row * 2, b = a + 1, c = a + 2, d = a + 3;
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices); geometry.computeVertexNormals();
+  return geometry;
+}
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 220), new THREE.MeshStandardMaterial({ color: 0x78d45d, roughness: 1 }));
 ground.rotation.x = -Math.PI / 2; ground.position.z = -70; scene.add(ground);
 
@@ -38,18 +69,20 @@ for (let i = 0; i < 12; i++) {
   cloud.position.set(x * (18 + (i % 3) * 8), 10 + (i % 2) * 3, -i * 16 - 8); scene.add(cloud);
 }
 
-const road = new THREE.Group(); scene.add(road);
+const asphalt = new THREE.MeshStandardMaterial({ color: 0x687987, roughness: 0.88, metalness: 0.02, side: THREE.DoubleSide });
+const shoulder = new THREE.MeshStandardMaterial({ color: 0xc8d1ce, roughness: 0.9, side: THREE.DoubleSide });
+const roadPaint = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, side: THREE.DoubleSide });
+scene.add(new THREE.Mesh(makeRoadRibbon(0, 130, 9.1, 0, 0.025, 360), shoulder));
+scene.add(new THREE.Mesh(makeRoadRibbon(0, 130, 8.25, 0, 0.055, 360), asphalt));
+for (const side of [-1, 1]) {
+  scene.add(new THREE.Mesh(makeRoadRibbon(0, 130, 0.16, side * 3.92, 0.09, 360), roadPaint));
+}
+for (let distance = 5; distance < 124; distance += 11) {
+  scene.add(new THREE.Mesh(makeRoadRibbon(distance, distance + 4.5, 0.13, 0, 0.092, 16), roadPaint));
+}
 for (let i = 0; i < 11; i++) {
   const z = 10 - i * 13;
-  const bend = Math.sin(i * 0.62) * 5;
-  const segment = new THREE.Mesh(new THREE.BoxGeometry(8, 0.12, 14.2), new THREE.MeshStandardMaterial({ color: 0x737d88, roughness: 0.92 }));
-  segment.position.set(bend, 0.02, z); segment.rotation.y = -Math.cos(i * 0.62) * 0.19; road.add(segment);
-  for (const side of [-1, 1]) {
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, 14.2), new THREE.MeshStandardMaterial({ color: 0xf6f5eb, roughness: 0.85 }));
-    edge.position.set(bend + side * 3.94, 0.12, z); edge.rotation.y = segment.rotation.y; road.add(edge);
-  }
-  const line = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 5), new THREE.MeshStandardMaterial({ color: 0xffffff }));
-  line.position.set(bend, 0.1, z); line.rotation.y = segment.rotation.y; road.add(line);
+  const bend = roadCenterX(z);
   for (const side of [-1, 1]) {
     const flower = new THREE.Mesh(new THREE.SphereGeometry(0.38, 8, 6), new THREE.MeshStandardMaterial({ color: side < 0 ? 0xffd64d : 0xff8db1 }));
     flower.position.set(bend + side * (6 + Math.random() * 3), 0.35, z + Math.random() * 8); scene.add(flower);
@@ -72,21 +105,77 @@ for (let i = 0; i < 11; i++) {
 }
 
 const car = new THREE.Group(); scene.add(car); car.position.set(0, 0, 5);
-const paint = new THREE.MeshStandardMaterial({ color: 0xf43f50, roughness: 0.3, metalness: 0.12 });
-const body = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.62, 2.85), paint); body.position.y = 0.72; car.add(body);
-const hood = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.2, 0.95), paint); hood.position.set(0, 1.08, -0.83); car.add(hood);
-const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.28, 0.72, 1.34), new THREE.MeshStandardMaterial({ color: 0x4a7590, roughness: 0.2, metalness: 0.08 })); cabin.position.set(0, 1.3, -0.12); car.add(cabin);
-const roof = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 1.05), paint); roof.position.set(0, 1.72, -0.13); car.add(roof);
-const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.2, 0.18), new THREE.MeshStandardMaterial({ color: 0xfff3e7, roughness: 0.35 })); bumper.position.set(0, 0.48, -1.43); car.add(bumper);
-for (const x of [-0.67, 0.67]) {
-  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), new THREE.MeshStandardMaterial({ color: 0xffee81, emissive: 0xffbd36, emissiveIntensity: 0.65, roughness: 0.2 }));
-  lamp.scale.set(1, 0.75, 0.35); lamp.position.set(x, 0.86, -1.43); car.add(lamp);
+function makeRoundedLoft(sections: { z: number; width: number; bottom: number; top: number }[]) {
+  const ringSize = 40, positions: number[] = [], indices: number[] = [];
+  const longitudinalSteps = (sections.length - 1) * 10;
+  const interpolate = (row: number, key: 'width' | 'bottom' | 'top') => {
+    const scaled = Math.min(row / longitudinalSteps * (sections.length - 1), sections.length - 1 - 1e-6);
+    const span = Math.floor(scaled), t = scaled - span;
+    const p0 = sections[Math.max(0, span - 1)]![key], p1 = sections[span]![key];
+    const p2 = sections[span + 1]![key], p3 = sections[Math.min(sections.length - 1, span + 2)]![key];
+    return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
+  };
+  for (let row = 0; row <= longitudinalSteps; row++) {
+    const scaled = Math.min(row / longitudinalSteps * (sections.length - 1), sections.length - 1 - 1e-6);
+    const span = Math.floor(scaled), mix = scaled - span;
+    const section = {
+      z: THREE.MathUtils.lerp(sections[span]!.z, sections[span + 1]!.z, mix),
+      width: Math.max(0.01, interpolate(row, 'width')),
+      bottom: interpolate(row, 'bottom'),
+      top: interpolate(row, 'top')
+    };
+    const centerY = (section.bottom + section.top) / 2, halfHeight = (section.top - section.bottom) / 2;
+    for (let i = 0; i < ringSize; i++) {
+      const angle = i / ringSize * Math.PI * 2;
+      const c = Math.cos(angle), s = Math.sin(angle), exponent = 0.62;
+      positions.push(section.width * Math.sign(c) * Math.pow(Math.abs(c), exponent), centerY + halfHeight * Math.sign(s) * Math.pow(Math.abs(s), exponent), section.z);
+    }
+  }
+  for (let row = 0; row < longitudinalSteps; row++) for (let i = 0; i < ringSize; i++) {
+    const a = row * ringSize + i, b = row * ringSize + (i + 1) % ringSize;
+    const c = (row + 1) * ringSize + i, d = (row + 1) * ringSize + (i + 1) % ringSize;
+    indices.push(a, b, c, b, d, c);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); geometry.setIndex(indices);
+  geometry.computeVertexNormals(); return geometry;
 }
-for (const x of [-1, 1]) { const mirror = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), paint); mirror.scale.set(1, 0.8, 0.75); mirror.position.set(x, 1.05, -0.3); car.add(mirror); }
-const wheels: THREE.Mesh[] = [];
-for (const x of [-0.95, 0.95]) for (const z of [-0.85, 0.9]) {
-  const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.2, 14), new THREE.MeshStandardMaterial({ color: 0x33363d }));
-  wheel.rotation.z = Math.PI / 2; wheel.position.set(x, 0.38, z); car.add(wheel); wheels.push(wheel);
+const paint = new THREE.MeshStandardMaterial({ color: 0xf33f50, roughness: 0.25, metalness: 0.13 });
+const body = new THREE.Mesh(makeRoundedLoft([
+  { z: -1.48, width: 0.58, bottom: 0.5, top: 0.79 }, { z: -1.3, width: 0.78, bottom: 0.46, top: 0.96 },
+  { z: -0.82, width: 0.91, bottom: 0.43, top: 1.08 }, { z: 0.35, width: 0.91, bottom: 0.43, top: 1.08 },
+  { z: 0.95, width: 0.84, bottom: 0.45, top: 1.02 }, { z: 1.34, width: 0.68, bottom: 0.49, top: 0.89 },
+  { z: 1.48, width: 0.48, bottom: 0.53, top: 0.71 }
+]), paint);
+car.add(body);
+const glass = new THREE.MeshStandardMaterial({ color: 0x416984, roughness: 0.19, metalness: 0.1, side: THREE.DoubleSide });
+car.add(new THREE.Mesh(makeRoundedLoft([
+  { z: -0.88, width: 0.49, bottom: 1.0, top: 1.36 }, { z: -0.56, width: 0.61, bottom: 0.99, top: 1.64 },
+  { z: 0.28, width: 0.6, bottom: 0.99, top: 1.62 }, { z: 0.72, width: 0.5, bottom: 0.98, top: 1.34 }
+]), glass));
+car.scale.setScalar(1.22);
+const chrome = new THREE.MeshStandardMaterial({ color: 0xf7f5ed, metalness: 0.42, roughness: 0.26 });
+for (const z of [-1.43, 1.42]) {
+  const bumper = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 1.35, 4, 16), chrome);
+  bumper.rotation.z = Math.PI / 2; bumper.position.set(0, 0.53, z); car.add(bumper);
+}
+for (const x of [-0.61, 0.61]) {
+  const headlight = new THREE.Mesh(new THREE.SphereGeometry(0.17, 24, 16), new THREE.MeshStandardMaterial({ color: 0xfff0a0, emissive: 0xffc741, emissiveIntensity: 0.45, roughness: 0.16 }));
+  headlight.scale.set(1, 0.82, 0.4); headlight.position.set(x, 0.82, -1.43); car.add(headlight);
+  const taillight = new THREE.Mesh(new THREE.SphereGeometry(0.14, 20, 12), new THREE.MeshStandardMaterial({ color: 0xff3044, emissive: 0xb40018, emissiveIntensity: 0.25, roughness: 0.22 }));
+  taillight.scale.set(1.2, 0.85, 0.45); taillight.position.set(x, 0.79, 1.4); car.add(taillight);
+}
+for (const x of [-1, 1]) {
+  const mirror = new THREE.Mesh(new THREE.SphereGeometry(0.14, 20, 12), paint);
+  mirror.scale.set(1.15, 0.75, 0.8); mirror.position.set(x * 0.91, 1.05, -0.26); car.add(mirror);
+}
+const wheels: THREE.Group[] = [];
+for (const x of [-0.87, 0.87]) for (const z of [-0.91, 0.91]) {
+  const wheel = new THREE.Group(); wheel.position.set(x, 0.4, z); wheel.rotation.z = Math.PI / 2; car.add(wheel);
+  const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.2, 32), new THREE.MeshStandardMaterial({ color: 0x252b32, roughness: 0.82 })); wheel.add(tire);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.215, 24), new THREE.MeshStandardMaterial({ color: 0xb7c4c8, metalness: 0.65, roughness: 0.25 })); wheel.add(hub);
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.105, 0.105, 0.222, 20), new THREE.MeshStandardMaterial({ color: 0xf6fbf9, metalness: 0.5, roughness: 0.2 })); wheel.add(cap);
+  wheels.push(wheel);
 }
 
 const medals = Array.from({ length: 10 }, (_, i) => {
@@ -94,11 +183,12 @@ const medals = Array.from({ length: 10 }, (_, i) => {
   const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.14, 24), new THREE.MeshStandardMaterial({ color: 0xffc928, metalness: 0.5, roughness: 0.28, emissive: 0x6e3d00, emissiveIntensity: 0.15 }));
   coin.rotation.x = Math.PI / 2; medal.add(coin);
   const star = new THREE.Mesh(new THREE.IcosahedronGeometry(0.23, 0), new THREE.MeshStandardMaterial({ color: 0xfff3ad, emissive: 0xffbf14, emissiveIntensity: 0.3 })); medal.add(star);
-  medal.position.set([0, -2.4, 2.6, -2.6, 2.6, -2.6, 2.4, -1.8, 1.5, 0][i]!, 1.5, -7 - i * 10.5); scene.add(medal); return medal;
+  const z = -7 - i * 10.5;
+  medal.position.set(roadCenterX(z) + [0, -2.4, 2.6, -2.6, 2.6, -2.6, 2.4, -1.8, 1.5, 0][i]!, 1.5, z); scene.add(medal); return medal;
 });
 const takenMedals = new Set<number>();
 
-const gate = new THREE.Group(); scene.add(gate); gate.position.set(0, 0, -114);
+const gate = new THREE.Group(); scene.add(gate); gate.position.set(roadCenterX(-114), 0, -114);
 const rainbowColors = [0xf04c61, 0xffa23e, 0xffd74a, 0x61ce78, 0x52b7ef, 0x9b75e8];
 for (let band = 0; band < rainbowColors.length; band++) {
   const radius = 4.4 - band * 0.37;
@@ -217,7 +307,7 @@ function tick() {
     car.position.z = 5 - state.distance;
     state.x += state.steering * 3.2 * dt;
     state.x = THREE.MathUtils.clamp(state.x, -3.2, 3.2);
-    car.position.x = THREE.MathUtils.lerp(car.position.x, state.x, 0.12);
+    car.position.x = THREE.MathUtils.lerp(car.position.x, roadCenterX(car.position.z) + state.x, 0.12);
     car.rotation.z = THREE.MathUtils.lerp(car.rotation.z, -state.steering * 0.13, 0.1);
     wheels.forEach(wheel => { wheel.rotation.x += speed * dt; });
     for (const [index, medal] of medals.entries()) {
@@ -237,7 +327,7 @@ function tick() {
     }
   }
   camera.position.x = THREE.MathUtils.lerp(camera.position.x, car.position.x * 0.35, 0.04);
-  camera.position.z = car.position.z + 13;
+  camera.position.z = car.position.z + 11;
   camera.lookAt(car.position.x * 0.3, 1.1, car.position.z - 12);
   renderer.render(scene, camera);
 }
